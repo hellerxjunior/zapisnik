@@ -9,19 +9,33 @@ import java.util.UUID
 class Repository(
     private val db: AppDatabase,
     private val backupScheduler: BackupScheduler,
+    private val images: ImageStore,
 ) {
     private val dao = db.dao()
     val entries: Flow<List<Entry>> = dao.entries()
     val categories: Flow<List<Category>> = dao.categories()
 
     suspend fun saveEntry(entry: Entry) {
-        dao.upsertEntry(entry.copy(updated = after(dao.entry(entry.id)?.updated)))
+        val old = dao.entry(entry.id)
+        dao.upsertEntry(entry.copy(updated = after(old?.updated)))
+        dropUnused(old?.images.orEmpty() - entry.images.toSet())
         backupScheduler.requestBackup()
     }
 
     suspend fun deleteEntry(id: String) {
-        dao.deleteEntry(id, after(dao.entry(id)?.updated))
+        val old = dao.entry(id)
+        dao.deleteEntry(id, after(old?.updated))
+        dropUnused(old?.images.orEmpty())
         backupScheduler.requestBackup()
+    }
+
+    suspend fun referencedImages(): Set<String> = dao.allEntries().flatMap { it.images }.toSet()
+
+    /** Smaže soubory odebraných obrázků, pokud je nepoužívá jiný záznam. Na Disku je uklidí synchronizace. */
+    private suspend fun dropUnused(removed: Collection<String>) {
+        if (removed.isEmpty()) return
+        val used = referencedImages()
+        images.delete(removed.filter { it !in used })
     }
 
     suspend fun addCategory(name: String) {

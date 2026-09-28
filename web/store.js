@@ -1,11 +1,16 @@
-// Data v prohlížeči (localStorage) a synchronizace s Google Diskem. Odpovídá Repository.kt a BackupManager.kt.
-import { FILE, FOLDER } from "./config.js";
+// Data v prohlížeči (localStorage, obrázky v IndexedDB) a synchronizace s Google Diskem.
+// Odpovídá Repository.kt a BackupManager.kt.
+import { FILE, FOLDER, IMAGES } from "./config.js";
+import * as images from "./images.js";
 import { Drive, UnauthorizedError, cachedToken, forgetToken } from "./drive.js";
-import { DEFAULT_CATEGORIES, KIND_CATEGORY, KIND_ENTRY, decode, emptySnapshot, encode, merge, normalize, same } from "./sync.js";
+import { DEFAULT_CATEGORIES, KIND_CATEGORY, KIND_ENTRY, decode, emptySnapshot, encode, merge, normalize, referencedImages, same } from "./sync.js";
 
 const DATA_KEY = "zapisnik.data";
 const META_KEY = "zapisnik.meta";
 export const CATEGORY_COLOR_COUNT = 8;
+/** Obrázky, na které nic neodkazuje, jdou na Disku do koše až po týdnu (jiné zařízení je může ještě potřebovat). */
+const REMOTE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+const imageName = (id) => id + ".jpg";
 
 function load(key, fallback) {
   try {
@@ -76,7 +81,14 @@ const tomb = (list, kind, id, at) => [...list.filter((t) => !(t.kind === kind &&
 
 /* ---------- úpravy ---------- */
 
-export function saveEntry(existing, { title, date, categoryId, text }) {
+/** Smaže z prohlížeče odebrané obrázky, pokud je nepoužívá jiný záznam. Na Disku je uklidí synchronizace. */
+function dropUnused(removed) {
+  const used = referencedImages(data);
+  const gone = removed.filter((id) => !used.has(id));
+  if (gone.length) images.remove(gone).catch(() => {});
+}
+
+export function saveEntry(existing, { title, date, categoryId, text, images: imageIds = [] }) {
   const now = after(existing?.updated);
   const entry = {
     id: existing?.id ?? uuid(),
@@ -86,14 +98,18 @@ export function saveEntry(existing, { title, date, categoryId, text }) {
     text: text.trim(),
     created: existing?.created ?? now,
     updated: now,
+    images: imageIds,
   };
   setData({ ...data, entries: [...data.entries.filter((e) => e.id !== entry.id), entry] }, true);
+  dropUnused((existing?.images ?? []).filter((id) => !imageIds.includes(id)));
   return entry.id;
 }
 
 export function deleteEntry(id) {
-  const now = after(data.entries.find((e) => e.id === id)?.updated);
+  const old = data.entries.find((e) => e.id === id);
+  const now = after(old?.updated);
   setData({ ...data, entries: data.entries.filter((e) => e.id !== id), deleted: tomb(data.deleted, KIND_ENTRY, id, now) }, true);
+  dropUnused(old?.images ?? []);
 }
 
 export function addCategory(name) {
@@ -135,7 +151,7 @@ export function scheduleSync(seconds) {
 }
 
 /**
- * Stáhne verzi z Disku, sloučí ji s daty v prohlížeči a výsledek nahraje zpět.
+ * Stáhne verzi z Disku, sloučí ji s daty v prohlížeči, nahraje nové obrázky, pak výsledek a nakonec stáhne chybějící obrázky.
  * Sloučení a uložení proběhne bez přerušení, takže úprava udělaná během synchronizace nezmizí.
  */
 export async function sync(token = cachedToken()) {
@@ -145,25 +161,47 @@ export async function sync(token = cachedToken()) {
   emit();
   try {
     const drive = new Drive(token);
-    let id = meta.fileId && (await drive.exists(meta.fileId)) ? meta.fileId : null;
-    let folderId = null;
-    if (!id) {
-      folderId = await drive.ensureFolder(FOLDER);
-      id = await drive.findFile(FILE, folderId);
-    }
+    const folderId = await drive.ensureFolder(FOLDER);
+    let id = meta.fileId && (await drive.exists(meta.fileId)) ? meta.fileId : await drive.findFile(FILE, folderId);
     const remote = id ? decode(await drive.download(id)) : null;
 
     const editsBefore = edits;
     const merged = remote ? merge(data, remote) : data;
     if (!same(merged, data)) setData(merged, false);
 
+    // Obrázky nahrát dřív než seznam, aby je ostatní zařízení našla, až na ně uvidí odkaz.
+    const imageFolder = await drive.ensureFolder(IMAGES, folderId);
+    const remoteImages = new Map((await drive.listFiles(imageFolder)).map((f) => [f.name, f]));
+    const referenced = referencedImages(merged);
+    for (const img of referenced) {
+      if (remoteImages.has(imageName(img))) continue;
+      const blob = await images.get(img);
+      if (blob) await drive.createImage(imageName(img), imageFolder, blob);
+    }
+
     const now = Date.now();
     if (!id) id = await drive.createFile(FILE, folderId, encode(merged, now));
     else if (!same(merged, remote)) await drive.updateFile(id, encode(merged, now));
 
-    // Úprava během nahrávání zůstává označená a pošle se při další synchronizaci.
+    setMeta({ fileId: id });
+
+    for (const img of referenced) {
+      const f = remoteImages.get(imageName(img));
+      if (f && !(await images.has(img))) await images.put(img, await drive.downloadBlob(f.id));
+    }
+
+    // Úklid obrázků, na které už nic neodkazuje (smazané záznamy).
+    const stillUsed = new Set([...referenced, ...referencedImages(data)]);
+    await images.cleanup(stillUsed);
+    for (const f of remoteImages.values()) {
+      if (!stillUsed.has(f.name.replace(/\.jpg$/, "")) && f.modified > 0 && f.modified < now - REMOTE_GRACE_MS) {
+        await drive.trash(f.id).catch(() => {});
+      }
+    }
+
+    // Úprava během synchronizace zůstává označená a pošle se hned další synchronizací.
     const editedMeanwhile = edits !== editsBefore;
-    setMeta({ fileId: id, lastSync: now, lastError: null, dirty: editedMeanwhile });
+    setMeta({ lastSync: now, lastError: null, dirty: editedMeanwhile });
     if (editedMeanwhile) scheduleSync(1);
   } catch (e) {
     if (e instanceof UnauthorizedError) forgetToken();

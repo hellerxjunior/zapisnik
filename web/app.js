@@ -1,5 +1,6 @@
 // Uživatelské rozhraní webové verze. Obrazovky odpovídají Android aplikaci: seznam, detail, úprava, kategorie, účet.
 import * as store from "./store.js";
+import * as images from "./images.js";
 import { UnauthorizedError, cachedToken, configured, requestToken, revoke } from "./drive.js";
 
 const root = document.getElementById("app");
@@ -30,6 +31,11 @@ const ICONS = {
   account: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zm0 14a8 8 0 0 1-6.2-2.95C7.1 15.4 9.4 14.5 12 14.5s4.9.9 6.2 2.55A8 8 0 0 1 12 20z",
   label: "M17.63 5.84A2 2 0 0 0 16 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z",
   del: "M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  image: "M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z",
+  camera: "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3.17L15 2H9z",
+  close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+  prev: "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z",
+  next: "M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z",
   sync: "M12 4V1L8 5l4 4V6a6 6 0 0 1 5.65 8.03l1.46 1.46A8 8 0 0 0 12 4zm0 14a6 6 0 0 1-5.65-8.03L4.89 8.51A8 8 0 0 0 12 20v3l4-4-4-4v3z",
 };
 const icon = (name) => {
@@ -136,6 +142,130 @@ function statusBadge() {
   return h("span", { class: "status " + cls, title: text }, h("span", { class: "pip" }), h("span", { class: "label" }, text));
 }
 
+/* ---------- obrázky ---------- */
+
+/** Náhled obrázku; načte se z IndexedDB, dokud se nestáhne z Disku, ukazuje zástupný text. */
+function thumb(id, onclick, onremove) {
+  const img = h("img", { alt: "", loading: "lazy" });
+  const box = h(
+    "div",
+    { class: "thumb" },
+    h("button", { class: "thumb-open", type: "button", "aria-label": "Zobrazit obrázek", onclick }, img),
+    onremove && h("button", { class: "thumb-remove", type: "button", "aria-label": "Odebrat obrázek", onclick: onremove }, icon("close")),
+  );
+  images.objectUrl(id).then((u) => {
+    if (u) img.src = u;
+    else box.classList.add("missing");
+  });
+  return box;
+}
+
+function gallery(ids, onremove) {
+  return h("div", { class: "gallery" }, ids.map((id, i) => thumb(id, () => viewer(ids, i), onremove && (() => onremove(id)))));
+}
+
+/** Prohlížení přes celou obrazovku, šipky a Esc na klávesnici, na mobilu tlačítka. */
+function viewer(ids, start) {
+  let i = start;
+  const img = h("img", { alt: "" });
+  const counter = h("span", { class: "viewer-count" });
+  const missing = h("p", { class: "viewer-missing", hidden: true }, "Obrázek se ještě stahuje z Disku…");
+  let url = null;
+  async function show() {
+    counter.textContent = ids.length > 1 ? `${i + 1} / ${ids.length}` : "";
+    const blob = await images.get(ids[i]);
+    if (url) URL.revokeObjectURL(url);
+    url = blob ? URL.createObjectURL(blob) : null;
+    img.hidden = !url;
+    missing.hidden = !!url;
+    if (url) img.src = url;
+  }
+  const step = (d) => ((i = (i + d + ids.length) % ids.length), show());
+  const close = () => {
+    if (!dlg.isConnected) return;
+    if (dlg.open) dlg.close();
+    dlg.remove();
+    if (url) URL.revokeObjectURL(url);
+  };
+  const nav = ids.length > 1;
+  const dlg = h(
+    "dialog",
+    {
+      class: "viewer",
+      "aria-label": "Obrázek",
+      onclose: close,
+      oncancel: (e) => (e.preventDefault(), close()),
+      onkeydown: (e) => (e.key === "ArrowLeft" ? step(-1) : e.key === "ArrowRight" ? step(1) : e.key === "Escape" ? close() : null),
+      onclick: (e) => e.target === dlg && close(),
+    },
+    img,
+    missing,
+    h("div", { class: "viewer-bar" }, counter, iconBtn("close", "Zavřít", close)),
+    nav && h("div", { class: "viewer-nav" }, iconBtn("prev", "Předchozí", () => step(-1)), iconBtn("next", "Další", () => step(1))),
+  );
+  document.body.append(dlg);
+  dlg.showModal();
+  show();
+}
+
+/** Obrázky ve formuláři: náhledy s odebráním, výběr souborů a na telefonu i fotoaparát. */
+function imagesEditor(initial) {
+  let ids = [...initial];
+  let pending = 0;
+  const list = h("div");
+  const status = h("span", { class: "small muted" });
+  const draw = () => list.replaceChildren(ids.length ? gallery(ids, (id) => ((ids = ids.filter((x) => x !== id)), draw())) : "");
+  async function add(files) {
+    pending += files.length;
+    status.textContent = "Zpracovávám obrázky…";
+    for (const f of files) {
+      try {
+        ids.push(await images.importFile(f));
+        draw();
+      } catch (e) {
+        toast(e.message);
+      }
+      pending--;
+    }
+    status.textContent = "";
+  }
+  const input = (capture) =>
+    h("input", {
+      type: "file",
+      accept: "image/*",
+      multiple: !capture,
+      capture: capture ? "environment" : undefined,
+      hidden: true,
+      onchange: (e) => {
+        add([...e.target.files]);
+        e.target.value = "";
+      },
+    });
+  const pickInput = input(false);
+  const cameraInput = input(true);
+  const touch = matchMedia("(pointer: coarse)").matches;
+  draw();
+  return {
+    ids: () => [...ids],
+    busy: () => pending > 0,
+    el: h(
+      "div",
+      { class: "field" },
+      h("span", {}, "Obrázky"),
+      list,
+      h(
+        "div",
+        { class: "row" },
+        h("button", { class: "btn", type: "button", onclick: () => pickInput.click() }, icon("image"), "Přidat obrázky"),
+        touch && h("button", { class: "btn", type: "button", onclick: () => cameraInput.click() }, icon("camera"), "Vyfotit"),
+        status,
+      ),
+      pickInput,
+      cameraInput,
+    ),
+  };
+}
+
 /* ---------- obrazovky ---------- */
 
 const ui = { query: "", filter: null }; // filter: null = vše, "" = bez kategorie
@@ -210,7 +340,13 @@ function listView() {
             "span",
             { class: "body" },
             h("span", { class: "title" }, e.title || "(bez názvu)"),
-            h("span", { class: "meta" }, fmtDate(e.date), cat && h("span", { style: { color: color(cat.color), fontWeight: 600 } }, cat.name)),
+            h(
+              "span",
+              { class: "meta" },
+              fmtDate(e.date),
+              cat && h("span", { style: { color: color(cat.color), fontWeight: 600 } }, cat.name),
+              e.images.length > 0 && h("span", { class: "img-count", title: "Obrázky: " + e.images.length }, icon("image"), e.images.length),
+            ),
             e.text && h("span", { class: "snip" }, e.text),
           ),
         ),
@@ -269,6 +405,7 @@ function detailView(id) {
       h("div", { class: "row small" }, cat && h("span", { class: "detail-cat", style: { color: color(cat.color) } }, cat.name), h("span", { class: "muted" }, fmtDate(e.date))),
       h("h2", { class: "detail-title" }, e.title || "(bez názvu)"),
       e.text ? h("div", { class: "detail-text" }, e.text) : h("p", { class: "muted" }, "Bez poznámky."),
+      e.images.length > 0 && gallery(e.images),
       h("p", { class: "small muted", style: { marginTop: "20px" } }, "Upraveno " + fmtTimestamp(e.updated)),
     ),
     h(
@@ -306,6 +443,7 @@ function editView(id) {
   if (!existing && ui.filter) category.value = ui.filter;
   const text = h("textarea", { name: "text", placeholder: "Co se dělalo, cena, kdo opravoval, díly…" });
   text.value = existing?.text ?? "";
+  const imageEditor = imagesEditor(existing?.images ?? []);
 
   const form = h(
     "form",
@@ -314,13 +452,21 @@ function editView(id) {
       onsubmit: (ev) => {
         ev.preventDefault();
         if (!title.value.trim()) return title.focus();
-        const newId = store.saveEntry(existing, { title: title.value, date: date.value, categoryId: category.value || null, text: text.value });
+        if (imageEditor.busy()) return toast("Počkej, obrázky se ještě zpracovávají.");
+        const newId = store.saveEntry(existing, {
+          title: title.value,
+          date: date.value,
+          categoryId: category.value || null,
+          text: text.value,
+          images: imageEditor.ids(),
+        });
         location.replace("#/zaznam/" + encodeURIComponent(newId));
       },
     },
     h("label", { class: "field" }, "Název", title),
     h("div", { class: "row" }, h("label", { class: "field", style: { flex: "1 1 160px" } }, "Datum", date), h("label", { class: "field", style: { flex: "1 1 160px" } }, "Kategorie", category)),
     h("label", { class: "field" }, "Poznámka", text),
+    imageEditor.el,
     h("div", { class: "row end" }, h("button", { class: "btn", type: "button", onclick: back }, "Zrušit"), h("button", { class: "btn accent", type: "submit" }, "Uložit")),
   );
   const view = h("div", {}, h("header", { class: "bar" }, iconBtn("back", "Zpět", back), h("h1", {}, existing ? "Upravit záznam" : "Nový záznam")), form);
@@ -491,6 +637,7 @@ function render() {
   else if (view === "ucet") next = accountView();
   else next = listView();
   const scroll = key === currentKey ? window.scrollY : 0;
+  images.revokeAll();
   current = next;
   currentKey = key;
   root.replaceChildren(next);
@@ -498,6 +645,7 @@ function render() {
 }
 
 store.subscribe(render);
+images.onChange(render);
 window.addEventListener("hashchange", render);
 render();
 

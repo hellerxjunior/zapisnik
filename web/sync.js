@@ -16,6 +16,9 @@ export const DEFAULT_CATEGORIES = [
   { id: "napady", name: "Nápady", color: 4, sortOrder: 4, updated: 0 },
 ];
 
+/** Id obrázku je zároveň název souboru, proto jen bezpečné znaky (UUID). */
+export const validImageId = (x) => typeof x === "string" && /^[A-Za-z0-9-]{1,64}$/.test(x);
+
 const num = (v, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const str = (v, d = "") => (typeof v === "string" ? v : d);
 
@@ -28,6 +31,7 @@ function entry(o) {
     text: str(o.text),
     created: num(o.created),
     updated: num(o.updated),
+    images: Array.isArray(o.images) ? o.images.filter(validImageId) : [],
   };
 }
 
@@ -71,6 +75,11 @@ export function normalize(s) {
 
 export function same(a, b) {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
+}
+
+/** Id všech obrázků, na které odkazuje nějaký záznam. */
+export function referencedImages(s) {
+  return new Set(s.entries.flatMap((e) => e.images));
 }
 
 /** Pro každé id nechá položku s nejvyšší hodnotou klíče; při shodě první výskyt (tedy verzi z prvního argumentu). */

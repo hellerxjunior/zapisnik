@@ -7,7 +7,10 @@ import cz.zapisnik.app.data.Tombstone
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Formát souboru na Disku. Verze 2 přidává čas změny kategorií a seznam smazaných položek. */
+/**
+ * Formát souboru na Disku. Verze 2 přidává čas změny kategorií a seznam smazaných položek,
+ * pole images u záznamu (id obrázků) je volitelné, starší soubory ho nemají.
+ */
 object BackupJson {
     fun encode(s: Snapshot, now: Long): String {
         val cats = JSONArray()
@@ -24,6 +27,7 @@ object BackupJson {
                     .put("id", it.id).put("title", it.title).put("date", it.date)
                     .put("categoryId", it.categoryId ?: JSONObject.NULL)
                     .put("text", it.text).put("created", it.created).put("updated", it.updated)
+                    .put("images", JSONArray(it.images))
             )
         }
         val deleted = JSONArray()
@@ -33,6 +37,9 @@ object BackupJson {
             .put("categories", cats).put("entries", ents).put("deleted", deleted)
             .toString(2)
     }
+
+    /** Id obrázku je zároveň název souboru, proto jen bezpečné znaky (UUID). */
+    fun validImageId(id: String) = id.length in 1..64 && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
 
     fun decode(json: String): Snapshot {
         val root = JSONObject(json)
@@ -54,6 +61,8 @@ object BackupJson {
                     text = o.optString("text"),
                     created = o.optLong("created"),
                     updated = o.optLong("updated"),
+                    images = o.optJSONArray("images")?.let { im -> (0 until im.length()).mapNotNull { im.opt(it) as? String } }.orEmpty()
+                        .filter { validImageId(it) },
                 )
             }
         }

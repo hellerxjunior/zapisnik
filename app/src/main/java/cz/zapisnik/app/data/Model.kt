@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverter
 
 @Entity(tableName = "entries", indices = [Index("categoryId"), Index("date")])
 data class Entry(
@@ -15,7 +16,18 @@ data class Entry(
     val text: String,
     val created: Long,
     val updated: Long,
+    /** Id přiložených obrázků v pořadí; soubor v telefonu i na Disku se jmenuje id + ".jpg". */
+    @ColumnInfo(defaultValue = "") val images: List<String> = emptyList(),
 )
+
+/** Seznam id obrázků se v databázi ukládá jako text oddělený čárkami (id jsou UUID). */
+class Converters {
+    @TypeConverter
+    fun fromImages(images: List<String>): String = images.joinToString(",")
+
+    @TypeConverter
+    fun toImages(value: String): List<String> = value.split(',').filter { it.isNotBlank() }
+}
 
 @Entity(tableName = "categories")
 data class Category(

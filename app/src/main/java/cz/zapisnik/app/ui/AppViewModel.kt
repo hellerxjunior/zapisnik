@@ -1,6 +1,7 @@
 package cz.zapisnik.app.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cz.zapisnik.app.ZapisnikApp
@@ -37,6 +38,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as ZapisnikApp
     private val repo = app.repository
     private val backup = BackupManager(application)
+    val images = app.images
+
+    init {
+        // Obrázky z rozepsaných a zrušených záznamů.
+        viewModelScope.launch(Dispatchers.IO) { runCatching { images.cleanup(repo.referencedImages()) } }
+    }
 
     val entries: StateFlow<List<Entry>> = repo.entries.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val categories: StateFlow<List<Category>> = repo.categories.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -58,15 +65,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun replaceTop(screen: Screen) { backStack.value = backStack.value.dropLast(1) + screen }
 
-    fun saveEntry(existing: Entry?, title: String, date: String, categoryId: String?, text: String) {
+    fun saveEntry(existing: Entry?, title: String, date: String, categoryId: String?, text: String, imageIds: List<String>) {
         val now = System.currentTimeMillis()
         val entry = Entry(
             id = existing?.id ?: UUID.randomUUID().toString(),
             title = title.trim(), date = date, categoryId = categoryId, text = text.trim(),
-            created = existing?.created ?: now, updated = now,
+            created = existing?.created ?: now, updated = now, images = imageIds,
         )
         viewModelScope.launch { repo.saveEntry(entry) }
         replaceTop(Screen.Detail(entry.id))
+    }
+
+    /** Zmenší a uloží vybrané obrázky, vrátí jejich id (ty, které nešly načíst, vynechá). */
+    suspend fun importImages(uris: List<Uri>): List<String> = uris.mapNotNull { uri ->
+        runCatching { images.import(app.contentResolver, uri) }.getOrNull()
     }
 
     fun deleteEntry(id: String) {

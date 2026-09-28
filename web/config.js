@@ -6,3 +6,4 @@ export const CLIENT_ID = "697561300499-u13m4t5u7ok4m0hdbtt70s6bqa22nhkn.apps.goo
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const FOLDER = "Zápisník";
 export const FILE = "zapisnik-zaloha.json";
+export const IMAGES = "Obrázky";

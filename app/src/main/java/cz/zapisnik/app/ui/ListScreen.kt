@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -224,6 +225,14 @@ private fun EntryCard(e: Entry, cat: Category?, query: String, onClick: () -> Un
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(10.dp))
+                    if (e.images.isNotEmpty()) {
+                        Icon(
+                            Icons.Outlined.Image, "Obrázky: ${e.images.size}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp),
+                        )
+                        Text("${e.images.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Text(fmtDate(e.date), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (cat != null) Text(cat.name, color = stripe, fontSize = 13.sp, fontWeight = FontWeight.Bold)

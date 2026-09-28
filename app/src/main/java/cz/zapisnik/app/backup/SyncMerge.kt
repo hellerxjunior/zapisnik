@@ -33,6 +33,9 @@ object SyncMerge {
         return normalize(Snapshot(entries, categories, deleted))
     }
 
+    /** Id všech obrázků, na které odkazuje nějaký záznam. */
+    fun referencedImages(s: Snapshot): Set<String> = s.entries.flatMap { it.images }.toSet()
+
     /** Seřadí vše podle id, aby šly dvě verze porovnat. */
     fun normalize(s: Snapshot) = Snapshot(
         entries = s.entries.sortedBy { it.id },

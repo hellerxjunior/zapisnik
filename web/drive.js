@@ -89,13 +89,17 @@ export class Drive {
     this.token = token;
   }
 
-  async request(method, url, body, contentType) {
+  async fetch(method, url, body, contentType) {
     const headers = { Authorization: "Bearer " + this.token };
     if (contentType) headers["Content-Type"] = contentType;
     const res = await fetch(url, { method, headers, body, cache: "no-store" });
     if (res.status === 401) throw new UnauthorizedError();
     if (!res.ok) throw new Error("Google Disk odpověděl chybou " + res.status + ". " + (await res.text()).slice(0, 300));
-    return res.text();
+    return res;
+  }
+
+  async request(method, url, body, contentType) {
+    return (await this.fetch(method, url, body, contentType)).text();
   }
 
   async json(method, url, body, contentType) {
@@ -113,15 +117,51 @@ export class Drive {
     return r.files?.[0]?.id || null;
   }
 
-  async findFolder(name) {
-    return this.findId(`name = '${esc(name)}' and mimeType = '${FOLDER_MIME}' and trashed = false`);
+  /** Vrátí id složky (případně podsložky v parentId), a když neexistuje, vytvoří ji. */
+  async ensureFolder(name, parentId = null) {
+    const inParent = parentId ? ` and '${parentId}' in parents` : "";
+    const found = await this.findId(`name = '${esc(name)}' and mimeType = '${FOLDER_MIME}' and trashed = false${inParent}`);
+    if (found) return found;
+    const meta = { name, mimeType: FOLDER_MIME, ...(parentId ? { parents: [parentId] } : {}) };
+    const r = await this.json("POST", API + "/files?fields=id", JSON.stringify(meta), "application/json; charset=UTF-8");
+    return r.id;
   }
 
-  async ensureFolder(name) {
-    const found = await this.findFolder(name);
-    if (found) return found;
-    const r = await this.json("POST", API + "/files?fields=id", JSON.stringify({ name, mimeType: FOLDER_MIME }), "application/json; charset=UTF-8");
+  /** Všechny soubory ve složce (bez koše): [{ id, name, modified }]. */
+  async listFiles(folderId) {
+    const out = [];
+    let page = null;
+    do {
+      const url =
+        API + "/files?spaces=drive&pageSize=1000&fields=nextPageToken,files(id,name,modifiedTime)&q=" +
+        encodeURIComponent(`'${folderId}' in parents and trashed = false`) + (page ? "&pageToken=" + encodeURIComponent(page) : "");
+      const r = await this.json("GET", url);
+      for (const f of r.files || []) out.push({ id: f.id, name: f.name, modified: Date.parse(f.modifiedTime) || 0 });
+      page = r.nextPageToken || null;
+    } while (page);
+    return out;
+  }
+
+  async createImage(name, folderId, blob) {
+    const boundary = "zapisnik" + Date.now();
+    const meta = JSON.stringify({ name, parents: [folderId] });
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: image/jpeg\r\n\r\n`,
+      blob,
+      `\r\n--${boundary}--\r\n`,
+    ]);
+    const r = await this.json("POST", UPLOAD + "/files?uploadType=multipart&fields=id", body, "multipart/related; boundary=" + boundary);
     return r.id;
+  }
+
+  async downloadBlob(id) {
+    const blob = await (await this.fetch("GET", API + "/files/" + encodeURIComponent(id) + "?alt=media")).blob();
+    return blob.type === "image/jpeg" ? blob : new Blob([blob], { type: "image/jpeg" });
+  }
+
+  /** Přesune soubor do koše na Disku (dá se odtud ještě 30 dní obnovit). */
+  trash(id) {
+    return this.request("PATCH", API + "/files/" + encodeURIComponent(id) + "?fields=id", JSON.stringify({ trashed: true }), "application/json; charset=UTF-8");
   }
 
   findFile(name, folderId) {

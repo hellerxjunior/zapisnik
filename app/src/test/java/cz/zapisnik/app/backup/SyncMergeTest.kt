@@ -93,6 +93,26 @@ class SyncMergeTest {
     }
 
     @Test
+    fun obrazkyProjdouFormatemANovejsiVerzeRozhoduje() {
+        val phone = snap(listOf(e("a", 10).copy(images = listOf("img-1", "img-2"))))
+        val web = snap(listOf(e("a", 20).copy(images = listOf("img-2"))))
+        val m = SyncMerge.merge(phone, web)
+        assertEquals(listOf("img-2"), m.entries.single().images)
+        assertEquals(setOf("img-2"), SyncMerge.referencedImages(m))
+        val back = BackupJson.decode(BackupJson.encode(phone, 1))
+        assertEquals(listOf("img-1", "img-2"), back.entries.single().images)
+    }
+
+    /** Id obrázku je název souboru, cesta typu ../ se nesmí dostat dál. */
+    @Test
+    fun nebezpecneIdObrazkuSeZahodi() {
+        val json = """{"app":"zapisnik","version":2,"categories":[],"deleted":[],
+            "entries":[{"id":"a","title":"x","date":"","categoryId":null,"text":"","created":1,"updated":1,
+            "images":["ok-1","../../databases/zapisnik","a/b","",5]}]}"""
+        assertEquals(listOf("ok-1"), BackupJson.decode(json).entries.single().images)
+    }
+
+    @Test
     fun odmitneCiziSoubor() {
         assertThrows(IllegalArgumentException::class.java) { BackupJson.decode("""{"app":"jina"}""") }
     }
