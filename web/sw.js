@@ -1,6 +1,6 @@
 // Offline režim: soubory webu se berou z mezipaměti a na pozadí se obnovují (stale-while-revalidate).
 // Požadavky na Google (přihlášení, Disk) jdou vždy rovnou do sítě.
-const CACHE = "zapisnik-v1";
+const CACHE = "zapisnik-v2";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "store.js", "sync.js", "drive.js", "config.js",
   "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png",
