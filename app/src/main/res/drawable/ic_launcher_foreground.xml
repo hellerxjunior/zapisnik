@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- stránka zápisníku -->
+    <path android:fillColor="#FFF3F5F7" android:pathData="M38,32h34a4,4 0 0 1 4,4v36a4,4 0 0 1 -4,4h-34a4,4 0 0 1 -4,-4v-36a4,4 0 0 1 4,-4z" />
+    <!-- žlutá záložka -->
+    <path android:fillColor="@color/ic_accent" android:pathData="M34,36a4,4 0 0 1 4,-4h4v44h-4a4,4 0 0 1 -4,-4z" />
+    <!-- řádky -->
+    <path android:fillColor="#FF56616F" android:pathData="M48,42h20v3h-20z M48,50h20v3h-20z M48,58h14v3h-14z" />
+</vector>
