@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Dočasný soubor pro fotku z fotoaparátu, po zmenšení se smaže. -->
+<!-- Dočasná fotka z fotoaparátu a přílohy, které se otevírají v jiné aplikaci. -->
 <paths>
     <cache-path name="camera" path="camera/" />
+    <files-path name="attachments" path="attachments/" />
 </paths>

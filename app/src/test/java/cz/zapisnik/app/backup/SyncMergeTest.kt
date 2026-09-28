@@ -1,10 +1,12 @@
 package cz.zapisnik.app.backup
 
+import cz.zapisnik.app.data.Attachment
 import cz.zapisnik.app.data.Category
 import cz.zapisnik.app.data.DefaultCategories
 import cz.zapisnik.app.data.Entry
 import cz.zapisnik.app.data.Snapshot
 import cz.zapisnik.app.data.Tombstone
+import cz.zapisnik.app.data.cleanFileName
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -110,6 +112,29 @@ class SyncMergeTest {
             "entries":[{"id":"a","title":"x","date":"","categoryId":null,"text":"","created":1,"updated":1,
             "images":["ok-1","../../databases/zapisnik","a/b","",5]}]}"""
         assertEquals(listOf("ok-1"), BackupJson.decode(json).entries.single().images)
+    }
+
+    @Test
+    fun prilohyProjdouFormatemAMajiNazevNaDisku() {
+        val a = Attachment("f-1", "Faktura 2026.PDF", "application/pdf", 1234)
+        val s = snap(listOf(e("a", 1).copy(files = listOf(a))))
+        val back = BackupJson.decode(BackupJson.encode(s, 1))
+        assertEquals(listOf(a), back.entries.single().files)
+        assertEquals("f-1.pdf", a.driveName)
+        assertEquals("f-2", Attachment("f-2", "bez pripony", "", 1).driveName)
+        assertEquals(mapOf("f-1" to a), SyncMerge.referencedFiles(back))
+    }
+
+    @Test
+    fun nebezpecnaPrilohaSeZahodiANazevVycisti() {
+        val json = """{"app":"zapisnik","version":2,"categories":[],"deleted":[],
+            "entries":[{"id":"a","title":"x","date":"","categoryId":null,"text":"","created":1,"updated":1,
+            "files":[{"id":"../x","name":"a"},{"id":"ok-1","name":"../../tajne:soubor?.txt","type":"text/plain","size":-5}]}]}"""
+        val f = BackupJson.decode(json).entries.single().files.single()
+        assertEquals("ok-1", f.id)
+        assertEquals("_.._tajne_soubor_.txt", f.name)
+        assertEquals(0L, f.size)
+        assertEquals("soubor", cleanFileName(" .. "))
     }
 
     @Test

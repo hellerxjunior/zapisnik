@@ -8,14 +8,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Synchronizace přes Google Disk: složka „Zápisník“, soubor zapisnik-zaloha.json a podsložka „Obrázky“.
- * Stáhne verzi z Disku, sloučí ji s telefonem, nahraje nové obrázky, pak výsledek a nakonec stáhne chybějící obrázky.
+ * Synchronizace přes Google Disk: složka „Zápisník“, soubor zapisnik-zaloha.json a podsložky „Obrázky“ a „Soubory“.
+ * Stáhne verzi z Disku, sloučí ji s telefonem, nahraje nové obrázky a přílohy, pak výsledek a nakonec stáhne chybějící.
  * Stejný postup používá webová verze.
  */
 class BackupManager(private val context: Context) {
     private val app = context.applicationContext as ZapisnikApp
     private val store = app.accountStore
     private val images = app.images
+    private val files = app.files
 
     /** Vrátí false, když je potřeba se znovu přihlásit. */
     suspend fun sync(tokenOverride: String? = null): Boolean = withContext(Dispatchers.IO) {
@@ -28,12 +29,17 @@ class BackupManager(private val context: Context) {
                 val remote = id?.let { SyncMerge.normalize(BackupJson.decode(drive.download(it))) }
                 val merged = app.repository.mergeIn(remote)
 
-                // Obrázky nahrát dřív než seznam, aby je ostatní zařízení našla, až na ně uvidí odkaz.
+                // Obrázky a přílohy nahrát dřív než seznam, aby je ostatní zařízení našla, až na ně uvidí odkaz.
                 val imageFolder = drive.ensureFolder(IMAGES, folder)
                 val remoteImages = drive.listFiles(imageFolder).associateBy { it.name }
                 val referenced = SyncMerge.referencedImages(merged)
                 referenced.filter { images.has(it) && fileName(it) !in remoteImages }
-                    .forEach { drive.createImage(fileName(it), imageFolder, images.file(it)) }
+                    .forEach { drive.createBinary(fileName(it), imageFolder, images.file(it), "image/jpeg") }
+                val fileFolder = drive.ensureFolder(FILES, folder)
+                val remoteFiles = drive.listFiles(fileFolder).associateBy { it.name }
+                val referencedFiles = SyncMerge.referencedFiles(merged)
+                referencedFiles.values.filter { files.has(it) && it.driveName !in remoteFiles }
+                    .forEach { drive.createBinary(it.driveName, fileFolder, files.file(it), it.type) }
 
                 val now = System.currentTimeMillis()
                 when {
@@ -45,14 +51,22 @@ class BackupManager(private val context: Context) {
                 referenced.filter { !images.has(it) }.forEach { img ->
                     remoteImages[fileName(img)]?.let { f -> images.write(img) { tmp -> drive.downloadTo(f.id, tmp) } }
                 }
+                referencedFiles.values.filter { !files.has(it) }.forEach { a ->
+                    remoteFiles[a.driveName]?.let { f -> files.write(a) { tmp -> drive.downloadTo(f.id, tmp) } }
+                }
 
-                // Úklid: obrázky, na které už nic neodkazuje (smazané záznamy). Na Disku jdou do koše až po týdnu,
+                // Úklid: obrázky a přílohy, na které už nic neodkazuje (smazané záznamy). Na Disku jdou do koše až po týdnu,
                 // aby je nesmazalo zařízení, které ještě nemá nejnovější seznam.
                 val stillUsed = referenced + app.repository.referencedImages()
                 images.cleanup(stillUsed)
                 val old = now - REMOTE_GRACE_MS
                 remoteImages.values
                     .filter { it.name.removeSuffix(".jpg") !in stillUsed && it.modified in 1 until old }
+                    .forEach { runCatching { drive.trash(it.id) } }
+                val filesUsed = referencedFiles.keys + app.repository.referencedFiles()
+                files.cleanup(filesUsed)
+                remoteFiles.values
+                    .filter { it.name.substringBefore('.') !in filesUsed && it.modified in 1 until old }
                     .forEach { runCatching { drive.trash(it.id) } }
 
                 store.backupDone(now)
@@ -76,6 +90,7 @@ class BackupManager(private val context: Context) {
         const val FOLDER = "Zápisník"
         const val FILE = "zapisnik-zaloha.json"
         const val IMAGES = "Obrázky"
+        const val FILES = "Soubory"
         private const val REMOTE_GRACE_MS = 7 * 24 * 60 * 60 * 1000L
         fun fileName(imageId: String) = "$imageId.jpg"
         /** Jedna synchronizace naráz, i když ji spustí tlačítko a plánovač současně. */

@@ -142,11 +142,11 @@ export class Drive {
     return out;
   }
 
-  async createImage(name, folderId, blob) {
+  async createBinary(name, folderId, blob, type) {
     const boundary = "zapisnik" + Date.now();
     const meta = JSON.stringify({ name, parents: [folderId] });
     const body = new Blob([
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: image/jpeg\r\n\r\n`,
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${type || "application/octet-stream"}\r\n\r\n`,
       blob,
       `\r\n--${boundary}--\r\n`,
     ]);
@@ -154,9 +154,9 @@ export class Drive {
     return r.id;
   }
 
-  async downloadBlob(id) {
+  async downloadBlob(id, type) {
     const blob = await (await this.fetch("GET", API + "/files/" + encodeURIComponent(id) + "?alt=media")).blob();
-    return blob.type === "image/jpeg" ? blob : new Blob([blob], { type: "image/jpeg" });
+    return !type || blob.type === type ? blob : new Blob([blob], { type });
   }
 
   /** Přesune soubor do koše na Disku (dá se odtud ještě 30 dní obnovit). */

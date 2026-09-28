@@ -156,11 +156,51 @@ assert.equal(decode(fileOnDrive().content).entries.length, 1);
   assert.deepEqual(decode({ app: "zapisnik", entries: [{ id: "x", images: ["../x", "ok-1", 3] }] }).entries[0].images, ["ok-1"]);
 }
 
-// 6) vypršené přihlášení: chyba, zapomenutý token, data v prohlížeči zůstanou
+// 6) přílohy: web nahraje PDF do Soubory, stáhne přílohu z telefonu a úklid je nesmaže
+{
+  const folderOf = (name) => [...files.entries()].find(([, f]) => f.name === name)?.[0];
+  const byName = (name) => [...files.values()].find((f) => f.name === name && !f.trashed);
+
+  await images.put("pdf-web", new Blob(["%PDF-web"]));
+  const entryId = store.saveEntry(null, {
+    title: "Záruka pračky", date: "2026-09-22", categoryId: "dum", text: "",
+    files: [{ id: "pdf-web", name: "Záruční list.PDF", type: "application/pdf", size: 8 }],
+  });
+  await store.sync();
+  assert.ok(folderOf("Soubory"), "podsložka Soubory existuje");
+  assert.equal(byName("pdf-web.pdf").content, "%PDF-web");
+  assert.equal(decode(fileOnDrive().content).entries.find((e) => e.id === entryId).files[0].name, "Záruční list.PDF");
+
+  files.set("tel-doc", { name: "doc-tel.xlsx", parents: [folderOf("Soubory")], content: "XLSX", modified: Date.now() });
+  const phone = decode(fileOnDrive().content);
+  phone.entries.push({
+    id: "tel-3", title: "Servisní kniha", date: "2026-09-23", categoryId: null, text: "", created: 1, updated: Date.now() + 5, images: [],
+    files: [{ id: "doc-tel", name: "Servis.xlsx", type: "", size: 4 }],
+  });
+  fileOnDrive().content = encode(phone);
+  await store.sync();
+  assert.equal(await (await images.get("doc-tel")).text(), "XLSX");
+
+  // staré záznamy v úložišti: úklid smaže jen nepoužívané, přílohy nechá
+  for (const id of mem.keys()) mem.get(id).added = 0;
+  await images.put("sirotek", new Blob(["x"]));
+  mem.get("sirotek").added = 0;
+  await store.sync();
+  assert.ok(await images.get("pdf-web"), "příloha zůstala");
+  assert.ok(await images.get("doc-tel"), "příloha z telefonu zůstala");
+  assert.equal(await images.get("sirotek"), null, "nepoužívaný soubor zmizel");
+
+  // odebrání přílohy ze záznamu ji smaže z prohlížeče
+  store.saveEntry(store.getData().entries.find((e) => e.id === entryId), { title: "Záruka pračky", date: "2026-09-22", categoryId: "dum", text: "", files: [] });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(await images.get("pdf-web"), null);
+}
+
+// 7) vypršené přihlášení: chyba, zapomenutý token, data v prohlížeči zůstanou
 rejectToken = true;
 await assert.rejects(store.sync(), /vypršelo/);
 assert.equal(sessionStorage.getItem("zapisnik.token"), null);
-assert.equal(store.getData().entries.length, 2);
+assert.equal(store.getData().entries.length, 4);
 assert.match(store.getMeta().lastError, /vypršelo/);
 
 console.log("store.js: vše v pořádku");

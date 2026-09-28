@@ -114,6 +114,7 @@ fun DetailScreen(vm: AppViewModel, id: String) {
                 }
             }
             if (e.images.isNotEmpty()) ImageGallery(vm.images, e.images)
+            if (e.files.isNotEmpty()) AttachmentList(vm.files, e.files)
             Text(
                 "Naposledy upraveno ${fmtTimestamp(e.updated)}",
                 fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -138,6 +139,7 @@ fun EditScreen(vm: AppViewModel, id: String?) {
     }
     var text by rememberSaveable { mutableStateOf(existing?.text ?: "") }
     var images by rememberSaveable { mutableStateOf(existing?.images ?: emptyList()) }
+    var files by rememberSaveable { mutableStateOf(existing?.files ?: emptyList()) }
     var titleError by remember { mutableStateOf(false) }
     var showDate by remember { mutableStateOf(false) }
     var catMenu by remember { mutableStateOf(false) }
@@ -153,7 +155,7 @@ fun EditScreen(vm: AppViewModel, id: String?) {
                     Button(
                         onClick = {
                             if (title.isBlank()) titleError = true
-                            else vm.saveEntry(existing, title, date, categoryId?.takeIf { c -> cats.any { it.id == c } }, text, images)
+                            else vm.saveEntry(existing, title, date, categoryId?.takeIf { c -> cats.any { it.id == c } }, text, images, files)
                         },
                         modifier = Modifier.padding(end = 8.dp),
                     ) { Text("Uložit") }
@@ -216,6 +218,7 @@ fun EditScreen(vm: AppViewModel, id: String?) {
                 modifier = Modifier.fillMaxWidth(),
             )
             ImageEditor(vm, images) { images = it }
+            AttachmentEditor(vm, files) { files = it }
             if (existing != null) {
                 OutlinedButton(
                     onClick = { confirmDelete = true },

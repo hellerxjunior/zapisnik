@@ -14,6 +14,7 @@ Obě se po přihlášení účtem Google synchronizují přes soubor `zapisnik-z
 - Smazání se ukládá jako záznam v poli `deleted`, aby se smazaná položka nevrátila z jiného zařízení.
 - Logika je dvakrát a musí zůstat stejná: `app/.../backup/SyncMerge.kt` a `web/sync.js`.
 - Obrázky: záznam má pole `images` s id obrázků. Každý obrázek je samostatný soubor `<id>.jpg` v podsložce **Zápisník/Obrázky**. Při přidání se zmenší na nejvýš 1600 px (JPEG). Synchronizace nejdřív nahraje nové obrázky, pak seznam a nakonec stáhne chybějící. Obrázky, na které už nic neodkazuje, se z Disku přesunou do koše až po týdnu.
+- Přílohy (libovolné soubory do 25 MB): záznam má pole `files` s položkami `{ id, name, type, size }`. Soubor je na Disku v podsložce **Zápisník/Soubory** pod názvem `<id>.<přípona>`, původní název je v seznamu. Synchronizují se stejně jako obrázky.
 - Telefon synchronizuje při otevření aplikace a asi 20 s po změně. Web po otevření stránky a pár sekund po změně.
 - Google Disk si u souboru pamatuje starší verze (Spravovat verze), takže se dá vrátit k dřívějšímu stavu.
 

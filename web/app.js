@@ -36,6 +36,8 @@ const ICONS = {
   close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
   prev: "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z",
   next: "M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z",
+  attach: "M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z",
+  file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11z",
   sync: "M12 4V1L8 5l4 4V6a6 6 0 0 1 5.65 8.03l1.46 1.46A8 8 0 0 0 12 4zm0 14a6 6 0 0 1-5.65-8.03L4.89 8.51A8 8 0 0 0 12 20v3l4-4-4-4v3z",
 };
 const icon = (name) => {
@@ -266,6 +268,82 @@ function imagesEditor(initial) {
   };
 }
 
+/* ---------- přílohy ---------- */
+
+const fmtSize = (b) => (b < 1000 ? `${b} B` : b < 1_000_000 ? `${Math.round(b / 1000)} kB` : `${(b / 1_000_000).toFixed(1).replace(".", ",")} MB`);
+
+/** Stáhne přílohu z prohlížeče do počítače/telefonu pod původním názvem. */
+async function openAttachment(a) {
+  const blob = await images.get(a.id);
+  if (!blob) return toast("Příloha se ještě stahuje z Disku.");
+  const url = URL.createObjectURL(blob);
+  const link = h("a", { href: url, download: a.name, hidden: true });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function attachmentList(files, onremove) {
+  const list = h("ul", { class: "files" });
+  for (const a of files) {
+    const meta = h("span", { class: "small muted" }, fmtSize(a.size));
+    const row = h(
+      "li",
+      {},
+      h("button", { class: "file-open", type: "button", title: "Stáhnout " + a.name, onclick: () => openAttachment(a) }, icon("file"), h("span", { class: "file-name" }, a.name), meta),
+      onremove && iconBtn("close", "Odebrat přílohu " + a.name, () => onremove(a)),
+    );
+    images.has(a.id).then((ok) => !ok && (meta.textContent = fmtSize(a.size) + " · stahuje se z Disku"));
+    list.append(row);
+  }
+  return list;
+}
+
+/** Přílohy ve formuláři: seznam s odebráním a výběr libovolných souborů. */
+function attachmentsEditor(initial) {
+  let files = [...initial];
+  let pending = 0;
+  const list = h("div");
+  const status = h("span", { class: "small muted" });
+  const draw = () => list.replaceChildren(files.length ? attachmentList(files, (a) => ((files = files.filter((x) => x.id !== a.id)), draw())) : "");
+  const input = h("input", {
+    type: "file",
+    multiple: true,
+    hidden: true,
+    onchange: async (e) => {
+      const picked = [...e.target.files];
+      e.target.value = "";
+      pending += picked.length;
+      status.textContent = "Ukládám…";
+      for (const f of picked) {
+        try {
+          files.push(await images.importAttachment(f));
+          draw();
+        } catch (err) {
+          toast(err.message);
+        }
+        pending--;
+      }
+      status.textContent = "";
+    },
+  });
+  draw();
+  return {
+    files: () => [...files],
+    busy: () => pending > 0,
+    el: h(
+      "div",
+      { class: "field" },
+      h("span", {}, "Přílohy"),
+      list,
+      h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => input.click() }, icon("attach"), "Přidat soubor"), status),
+      h("span", { class: "small muted" }, `PDF, dokumenty, tabulky… nejvýš ${images.MAX_FILE_SIZE / 1_000_000} MB na soubor.`),
+      input,
+    ),
+  };
+}
+
 /* ---------- obrazovky ---------- */
 
 const ui = { query: "", filter: null }; // filter: null = vše, "" = bez kategorie
@@ -316,7 +394,7 @@ function listView() {
     const q = fold(ui.query.trim());
     const shown = entries
       .filter((e) => (ui.filter === null ? true : ui.filter === "" ? !e.categoryId || !categoryById(e.categoryId) : e.categoryId === ui.filter))
-      .filter((e) => !q || fold(e.title + " " + e.text + " " + (categoryById(e.categoryId)?.name || "")).includes(q))
+      .filter((e) => !q || fold([e.title, e.text, categoryById(e.categoryId)?.name || "", ...e.files.map((f) => f.name)].join(" ")).includes(q))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.updated - a.updated));
 
     if (!shown.length) {
@@ -346,6 +424,7 @@ function listView() {
               fmtDate(e.date),
               cat && h("span", { style: { color: color(cat.color), fontWeight: 600 } }, cat.name),
               e.images.length > 0 && h("span", { class: "img-count", title: "Obrázky: " + e.images.length }, icon("image"), e.images.length),
+              e.files.length > 0 && h("span", { class: "img-count", title: "Přílohy: " + e.files.length }, icon("attach"), e.files.length),
             ),
             e.text && h("span", { class: "snip" }, e.text),
           ),
@@ -406,6 +485,7 @@ function detailView(id) {
       h("h2", { class: "detail-title" }, e.title || "(bez názvu)"),
       e.text ? h("div", { class: "detail-text" }, e.text) : h("p", { class: "muted" }, "Bez poznámky."),
       e.images.length > 0 && gallery(e.images),
+      e.files.length > 0 && attachmentList(e.files),
       h("p", { class: "small muted", style: { marginTop: "20px" } }, "Upraveno " + fmtTimestamp(e.updated)),
     ),
     h(
@@ -444,6 +524,7 @@ function editView(id) {
   const text = h("textarea", { name: "text", placeholder: "Co se dělalo, cena, kdo opravoval, díly…" });
   text.value = existing?.text ?? "";
   const imageEditor = imagesEditor(existing?.images ?? []);
+  const fileEditor = attachmentsEditor(existing?.files ?? []);
 
   const form = h(
     "form",
@@ -452,13 +533,14 @@ function editView(id) {
       onsubmit: (ev) => {
         ev.preventDefault();
         if (!title.value.trim()) return title.focus();
-        if (imageEditor.busy()) return toast("Počkej, obrázky se ještě zpracovávají.");
+        if (imageEditor.busy() || fileEditor.busy()) return toast("Počkej, soubory se ještě ukládají.");
         const newId = store.saveEntry(existing, {
           title: title.value,
           date: date.value,
           categoryId: category.value || null,
           text: text.value,
           images: imageEditor.ids(),
+          files: fileEditor.files(),
         });
         location.replace("#/zaznam/" + encodeURIComponent(newId));
       },
@@ -467,6 +549,7 @@ function editView(id) {
     h("div", { class: "row" }, h("label", { class: "field", style: { flex: "1 1 160px" } }, "Datum", date), h("label", { class: "field", style: { flex: "1 1 160px" } }, "Kategorie", category)),
     h("label", { class: "field" }, "Poznámka", text),
     imageEditor.el,
+    fileEditor.el,
     h("div", { class: "row end" }, h("button", { class: "btn", type: "button", onclick: back }, "Zrušit"), h("button", { class: "btn accent", type: "submit" }, "Uložit")),
   );
   const view = h("div", {}, h("header", { class: "bar" }, iconBtn("back", "Zpět", back), h("h1", {}, existing ? "Upravit záznam" : "Nový záznam")), form);

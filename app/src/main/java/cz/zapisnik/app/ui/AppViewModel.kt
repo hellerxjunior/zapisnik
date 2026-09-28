@@ -8,6 +8,7 @@ import cz.zapisnik.app.ZapisnikApp
 import cz.zapisnik.app.backup.AccountState
 import cz.zapisnik.app.backup.BackupManager
 import cz.zapisnik.app.backup.DriveClient
+import cz.zapisnik.app.data.Attachment
 import cz.zapisnik.app.data.Category
 import cz.zapisnik.app.data.Entry
 import kotlinx.coroutines.Dispatchers
@@ -39,10 +40,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = app.repository
     private val backup = BackupManager(application)
     val images = app.images
+    val files = app.files
 
     init {
         // Obrázky z rozepsaných a zrušených záznamů.
-        viewModelScope.launch(Dispatchers.IO) { runCatching { images.cleanup(repo.referencedImages()) } }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { images.cleanup(repo.referencedImages()) }
+            runCatching { files.cleanup(repo.referencedFiles()) }
+        }
     }
 
     val entries: StateFlow<List<Entry>> = repo.entries.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -65,12 +70,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun replaceTop(screen: Screen) { backStack.value = backStack.value.dropLast(1) + screen }
 
-    fun saveEntry(existing: Entry?, title: String, date: String, categoryId: String?, text: String, imageIds: List<String>) {
+    fun saveEntry(
+        existing: Entry?, title: String, date: String, categoryId: String?, text: String,
+        imageIds: List<String>, attachments: List<Attachment>,
+    ) {
         val now = System.currentTimeMillis()
         val entry = Entry(
             id = existing?.id ?: UUID.randomUUID().toString(),
             title = title.trim(), date = date, categoryId = categoryId, text = text.trim(),
-            created = existing?.created ?: now, updated = now, images = imageIds,
+            created = existing?.created ?: now, updated = now, images = imageIds, files = attachments,
         )
         viewModelScope.launch { repo.saveEntry(entry) }
         replaceTop(Screen.Detail(entry.id))
@@ -79,6 +87,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Zmenší a uloží vybrané obrázky, vrátí jejich id (ty, které nešly načíst, vynechá). */
     suspend fun importImages(uris: List<Uri>): List<String> = uris.mapNotNull { uri ->
         runCatching { images.import(app.contentResolver, uri) }.getOrNull()
+    }
+
+    /** Zkopíruje vybrané soubory do aplikace. Vrátí přílohy a chybové hlášky těch, které nešly. */
+    suspend fun importFiles(uris: List<Uri>): Pair<List<Attachment>, List<String>> {
+        val errors = mutableListOf<String>()
+        val added = uris.mapNotNull { uri ->
+            runCatching { files.import(app.contentResolver, uri) }.onFailure { errors += (it.message ?: "Soubor nejde načíst.") }.getOrNull()
+        }
+        return added to errors
     }
 
     fun deleteEntry(id: String) {

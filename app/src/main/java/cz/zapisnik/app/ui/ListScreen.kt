@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.Card
@@ -84,7 +85,7 @@ fun ListScreen(vm: AppViewModel) {
             val score = when {
                 t.startsWith(q) -> 3
                 t.contains(q) -> 2
-                fold(e.text).contains(q) -> 1
+                fold(e.text).contains(q) || e.files.any { fold(it.name).contains(q) } -> 1
                 else -> 0
             }
             if (score > 0) score to e else null
@@ -231,6 +232,14 @@ private fun EntryCard(e: Entry, cat: Category?, query: String, onClick: () -> Un
                             tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp),
                         )
                         Text("${e.images.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if (e.files.isNotEmpty()) {
+                        Icon(
+                            Icons.Outlined.AttachFile, "Přílohy: ${e.files.size}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp),
+                        )
+                        Text("${e.files.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(fmtDate(e.date), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -4,12 +4,15 @@ import cz.zapisnik.app.data.Category
 import cz.zapisnik.app.data.Entry
 import cz.zapisnik.app.data.Snapshot
 import cz.zapisnik.app.data.Tombstone
+import cz.zapisnik.app.data.attachmentJson
+import cz.zapisnik.app.data.attachmentOf
+import cz.zapisnik.app.data.validFileId
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * Formát souboru na Disku. Verze 2 přidává čas změny kategorií a seznam smazaných položek,
- * pole images u záznamu (id obrázků) je volitelné, starší soubory ho nemají.
+ * pole images (id obrázků) a files (přílohy) u záznamu jsou volitelná, starší soubory je nemají.
  */
 object BackupJson {
     fun encode(s: Snapshot, now: Long): String {
@@ -28,6 +31,7 @@ object BackupJson {
                     .put("categoryId", it.categoryId ?: JSONObject.NULL)
                     .put("text", it.text).put("created", it.created).put("updated", it.updated)
                     .put("images", JSONArray(it.images))
+                    .put("files", JSONArray(it.files.map(::attachmentJson)))
             )
         }
         val deleted = JSONArray()
@@ -37,9 +41,6 @@ object BackupJson {
             .put("categories", cats).put("entries", ents).put("deleted", deleted)
             .toString(2)
     }
-
-    /** Id obrázku je zároveň název souboru, proto jen bezpečné znaky (UUID). */
-    fun validImageId(id: String) = id.length in 1..64 && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
 
     fun decode(json: String): Snapshot {
         val root = JSONObject(json)
@@ -62,7 +63,8 @@ object BackupJson {
                     created = o.optLong("created"),
                     updated = o.optLong("updated"),
                     images = o.optJSONArray("images")?.let { im -> (0 until im.length()).mapNotNull { im.opt(it) as? String } }.orEmpty()
-                        .filter { validImageId(it) },
+                        .filter { validFileId(it) },
+                    files = o.optJSONArray("files")?.let { f -> (0 until f.length()).mapNotNull { attachmentOf(f.optJSONObject(it)) } }.orEmpty(),
                 )
             }
         }

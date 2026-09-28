@@ -10,6 +10,7 @@ class Repository(
     private val db: AppDatabase,
     private val backupScheduler: BackupScheduler,
     private val images: ImageStore,
+    private val files: AttachmentStore,
 ) {
     private val dao = db.dao()
     val entries: Flow<List<Entry>> = dao.entries()
@@ -19,6 +20,7 @@ class Repository(
         val old = dao.entry(entry.id)
         dao.upsertEntry(entry.copy(updated = after(old?.updated)))
         dropUnused(old?.images.orEmpty() - entry.images.toSet())
+        dropUnusedFiles(old?.files.orEmpty().map { it.id } - entry.files.map { it.id }.toSet())
         backupScheduler.requestBackup()
     }
 
@@ -26,10 +28,19 @@ class Repository(
         val old = dao.entry(id)
         dao.deleteEntry(id, after(old?.updated))
         dropUnused(old?.images.orEmpty())
+        dropUnusedFiles(old?.files.orEmpty().map { it.id })
         backupScheduler.requestBackup()
     }
 
     suspend fun referencedImages(): Set<String> = dao.allEntries().flatMap { it.images }.toSet()
+
+    suspend fun referencedFiles(): Set<String> = dao.allEntries().flatMap { e -> e.files.map { it.id } }.toSet()
+
+    private suspend fun dropUnusedFiles(removed: Collection<String>) {
+        if (removed.isEmpty()) return
+        val used = referencedFiles()
+        files.delete(removed.filter { it !in used })
+    }
 
     /** Smaže soubory odebraných obrázků, pokud je nepoužívá jiný záznam. Na Disku je uklidí synchronizace. */
     private suspend fun dropUnused(removed: Collection<String>) {

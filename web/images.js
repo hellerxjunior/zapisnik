@@ -1,8 +1,10 @@
-// Obrázky v prohlížeči (IndexedDB) a jejich zmenšení při přidání. Odpovídá ImageStore.kt v Android aplikaci.
+// Obrázky a přílohy v prohlížeči (IndexedDB, klíčem je id) a zmenšení fotek při přidání.
+// Odpovídá ImageStore.kt a AttachmentStore.kt v Android aplikaci.
 
 export const MAX_SIDE = 1600;
 export const QUALITY = 0.82;
 export const GRACE_MS = 60 * 60 * 1000;
+export const MAX_FILE_SIZE = 25_000_000;
 
 /** Úložiště { id -> { blob, added } }. V testech se nahradí pamětí přes setBackend. */
 let backend = null;
@@ -64,7 +66,7 @@ export async function keys() {
   return (await db().keys()).map(String);
 }
 
-/** Smaže obrázky, na které už nic neodkazuje. Čerstvé nechá, mohou patřit k rozepsanému záznamu. */
+/** Smaže obrázky a přílohy, na které už nic neodkazuje. Čerstvé nechá, mohou patřit k rozepsanému záznamu. */
 export async function cleanup(referenced, graceMs = GRACE_MS) {
   const limit = Date.now() - graceMs;
   for (const id of await keys()) {
@@ -96,6 +98,14 @@ export async function importFile(file) {
   const id = uuid();
   await put(id, blob);
   return id;
+}
+
+/** Uloží přílohu (libovolný soubor) a vrátí { id, name, type, size }. */
+export async function importAttachment(file) {
+  if (file.size > MAX_FILE_SIZE) throw new Error(`„${file.name}“ je větší než ${MAX_FILE_SIZE / 1_000_000} MB.`);
+  const id = uuid();
+  await put(id, file.slice(0, file.size, file.type));
+  return { id, name: file.name, type: file.type || "", size: file.size };
 }
 
 /** URL pro <img>; uvolňuje se při překreslení obrazovky přes revokeAll. */

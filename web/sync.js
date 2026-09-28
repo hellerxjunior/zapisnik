@@ -32,7 +32,30 @@ function entry(o) {
     created: num(o.created),
     updated: num(o.updated),
     images: Array.isArray(o.images) ? o.images.filter(validImageId) : [],
+    files: Array.isArray(o.files) ? o.files.map(attachment).filter(Boolean) : [],
   };
+}
+
+/** Původní název souboru bez znaků, které nejdou použít v cestě. Stejně jako cleanFileName v Model.kt. */
+export function cleanFileName(name) {
+  const s = String(name ?? "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 120);
+  return s || "soubor";
+}
+
+/** Příloha: { id, name, type, size }. Nebezpečné id (je to název souboru) zahodí. */
+function attachment(o) {
+  if (!o || !validImageId(o.id)) return null;
+  return { id: o.id, name: cleanFileName(o.name), type: str(o.type).slice(0, 100), size: Math.max(0, num(o.size)) };
+}
+
+/** Název přílohy na Disku: id a přípona z původního názvu (stejně jako Attachment.driveName v Android aplikaci). */
+export function driveName(a) {
+  const ext = /\.[A-Za-z0-9]{1,8}$/.exec(a.name);
+  return a.id + (ext ? ext[0].toLowerCase() : "");
 }
 
 function category(o, i) {
@@ -80,6 +103,11 @@ export function same(a, b) {
 /** Id všech obrázků, na které odkazuje nějaký záznam. */
 export function referencedImages(s) {
   return new Set(s.entries.flatMap((e) => e.images));
+}
+
+/** Přílohy, na které odkazuje nějaký záznam: Map id -> příloha. */
+export function referencedFiles(s) {
+  return new Map(s.entries.flatMap((e) => e.files).map((f) => [f.id, f]));
 }
 
 /** Pro každé id nechá položku s nejvyšší hodnotou klíče; při shodě první výskyt (tedy verzi z prvního argumentu). */

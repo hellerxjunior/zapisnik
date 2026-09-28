@@ -59,7 +59,8 @@ class DriveClient(private val token: String) {
     fun createFile(name: String, folderId: String, content: String): String =
         upload(name, folderId, content.toByteArray(Charsets.UTF_8), "application/json; charset=UTF-8")
 
-    fun createImage(name: String, folderId: String, file: File): String = upload(name, folderId, file.readBytes(), "image/jpeg")
+    fun createBinary(name: String, folderId: String, file: File, type: String): String =
+        upload(name, folderId, file.readBytes(), type.ifBlank { "application/octet-stream" })
 
     private fun upload(name: String, folderId: String, content: ByteArray, type: String): String {
         val boundary = "zapisnik" + System.nanoTime()

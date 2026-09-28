@@ -1,9 +1,9 @@
 // Data v prohlížeči (localStorage, obrázky v IndexedDB) a synchronizace s Google Diskem.
 // Odpovídá Repository.kt a BackupManager.kt.
-import { FILE, FOLDER, IMAGES } from "./config.js";
+import { FILE, FILES, FOLDER, IMAGES } from "./config.js";
 import * as images from "./images.js";
 import { Drive, UnauthorizedError, cachedToken, forgetToken } from "./drive.js";
-import { DEFAULT_CATEGORIES, KIND_CATEGORY, KIND_ENTRY, decode, emptySnapshot, encode, merge, normalize, referencedImages, same } from "./sync.js";
+import { DEFAULT_CATEGORIES, KIND_CATEGORY, KIND_ENTRY, cleanFileName, decode, driveName, emptySnapshot, encode, merge, normalize, referencedFiles, referencedImages, same } from "./sync.js";
 
 const DATA_KEY = "zapisnik.data";
 const META_KEY = "zapisnik.meta";
@@ -81,14 +81,17 @@ const tomb = (list, kind, id, at) => [...list.filter((t) => !(t.kind === kind &&
 
 /* ---------- úpravy ---------- */
 
-/** Smaže z prohlížeče odebrané obrázky, pokud je nepoužívá jiný záznam. Na Disku je uklidí synchronizace. */
+/** Id všech obrázků a příloh, na které odkazuje nějaký záznam. */
+const usedBlobs = (s) => new Set([...referencedImages(s), ...referencedFiles(s).keys()]);
+
+/** Smaže z prohlížeče odebrané obrázky a přílohy, pokud je nepoužívá jiný záznam. Na Disku je uklidí synchronizace. */
 function dropUnused(removed) {
-  const used = referencedImages(data);
+  const used = usedBlobs(data);
   const gone = removed.filter((id) => !used.has(id));
   if (gone.length) images.remove(gone).catch(() => {});
 }
 
-export function saveEntry(existing, { title, date, categoryId, text, images: imageIds = [] }) {
+export function saveEntry(existing, { title, date, categoryId, text, images: imageIds = [], files = [] }) {
   const now = after(existing?.updated);
   const entry = {
     id: existing?.id ?? uuid(),
@@ -99,9 +102,11 @@ export function saveEntry(existing, { title, date, categoryId, text, images: ima
     created: existing?.created ?? now,
     updated: now,
     images: imageIds,
+    files: files.map((f) => ({ ...f, name: cleanFileName(f.name) })),
   };
   setData({ ...data, entries: [...data.entries.filter((e) => e.id !== entry.id), entry] }, true);
-  dropUnused((existing?.images ?? []).filter((id) => !imageIds.includes(id)));
+  const kept = new Set([...imageIds, ...files.map((f) => f.id)]);
+  dropUnused([...(existing?.images ?? []), ...(existing?.files ?? []).map((f) => f.id)].filter((id) => !kept.has(id)));
   return entry.id;
 }
 
@@ -109,7 +114,7 @@ export function deleteEntry(id) {
   const old = data.entries.find((e) => e.id === id);
   const now = after(old?.updated);
   setData({ ...data, entries: data.entries.filter((e) => e.id !== id), deleted: tomb(data.deleted, KIND_ENTRY, id, now) }, true);
-  dropUnused(old?.images ?? []);
+  dropUnused([...(old?.images ?? []), ...(old?.files ?? []).map((f) => f.id)]);
 }
 
 export function addCategory(name) {
@@ -176,7 +181,15 @@ export async function sync(token = cachedToken()) {
     for (const img of referenced) {
       if (remoteImages.has(imageName(img))) continue;
       const blob = await images.get(img);
-      if (blob) await drive.createImage(imageName(img), imageFolder, blob);
+      if (blob) await drive.createBinary(imageName(img), imageFolder, blob, "image/jpeg");
+    }
+    const fileFolder = await drive.ensureFolder(FILES, folderId);
+    const remoteFiles = new Map((await drive.listFiles(fileFolder)).map((f) => [f.name, f]));
+    const refFiles = referencedFiles(merged);
+    for (const a of refFiles.values()) {
+      if (remoteFiles.has(driveName(a))) continue;
+      const blob = await images.get(a.id);
+      if (blob) await drive.createBinary(driveName(a), fileFolder, blob, a.type);
     }
 
     const now = Date.now();
@@ -187,14 +200,18 @@ export async function sync(token = cachedToken()) {
 
     for (const img of referenced) {
       const f = remoteImages.get(imageName(img));
-      if (f && !(await images.has(img))) await images.put(img, await drive.downloadBlob(f.id));
+      if (f && !(await images.has(img))) await images.put(img, await drive.downloadBlob(f.id, "image/jpeg"));
+    }
+    for (const a of refFiles.values()) {
+      const f = remoteFiles.get(driveName(a));
+      if (f && !(await images.has(a.id))) await images.put(a.id, await drive.downloadBlob(f.id, a.type || undefined));
     }
 
-    // Úklid obrázků, na které už nic neodkazuje (smazané záznamy).
-    const stillUsed = new Set([...referenced, ...referencedImages(data)]);
+    // Úklid obrázků a příloh, na které už nic neodkazuje (smazané záznamy).
+    const stillUsed = new Set([...usedBlobs(merged), ...usedBlobs(data)]);
     await images.cleanup(stillUsed);
-    for (const f of remoteImages.values()) {
-      if (!stillUsed.has(f.name.replace(/\.jpg$/, "")) && f.modified > 0 && f.modified < now - REMOTE_GRACE_MS) {
+    for (const f of [...remoteImages.values(), ...remoteFiles.values()]) {
+      if (!stillUsed.has(f.name.split(".")[0]) && f.modified > 0 && f.modified < now - REMOTE_GRACE_MS) {
         await drive.trash(f.id).catch(() => {});
       }
     }

@@ -36,6 +36,10 @@ object SyncMerge {
     /** Id všech obrázků, na které odkazuje nějaký záznam. */
     fun referencedImages(s: Snapshot): Set<String> = s.entries.flatMap { it.images }.toSet()
 
+    /** Všechny přílohy, na které odkazuje nějaký záznam (podle id). */
+    fun referencedFiles(s: Snapshot): Map<String, cz.zapisnik.app.data.Attachment> =
+        s.entries.flatMap { it.files }.associateBy { it.id }
+
     /** Seřadí vše podle id, aby šly dvě verze porovnat. */
     fun normalize(s: Snapshot) = Snapshot(
         entries = s.entries.sortedBy { it.id },

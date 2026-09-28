@@ -7,3 +7,4 @@ export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const FOLDER = "Zápisník";
 export const FILE = "zapisnik-zaloha.json";
 export const IMAGES = "Obrázky";
+export const FILES = "Soubory";
